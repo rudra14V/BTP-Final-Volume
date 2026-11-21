@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">Voice Lock BTP</string>
+    <string name="accessibility_service_label">Voice Lock Protection Service</string>
+    <string name="accessibility_service_description">Monitors foreground app launches to enforce voice authentication lock on user-selected protected applications.</string>
+</resources>
