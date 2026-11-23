@@ -15,14 +15,14 @@ data class SecuritySettings(
         const val MIN_SIMILARITY_THRESHOLD = 0.50f
         const val MAX_SIMILARITY_THRESHOLD = 0.95f
 
-        const val DEFAULT_GRACE_PERIOD_SECONDS = 0 // Instant re-lock on every launch
+        const val DEFAULT_GRACE_PERIOD_SECONDS = 30 // Default 30s session window
         const val DEFAULT_MAX_FAILED_ATTEMPTS = 5
         const val DEFAULT_COOLDOWN_DURATION_SECONDS = 30
 
         const val DEFAULT_ENROLLMENT_SAMPLES_COUNT = 3
         val ENROLLMENT_SAMPLES_OPTIONS = listOf(2, 3, 5)
 
-        val GRACE_PERIOD_OPTIONS = listOf(0, 5, 10, 30, 60)
+        val GRACE_PERIOD_OPTIONS = listOf(0, 15, 30, 60, 120)
         val MAX_FAILED_ATTEMPTS_OPTIONS = listOf(3, 5, 10)
         val COOLDOWN_OPTIONS = listOf(15, 30, 60, 120)
 

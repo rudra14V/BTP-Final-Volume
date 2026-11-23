@@ -94,16 +94,15 @@ object LockManager {
     }
 
     fun isAppUnlocked(packageName: String, gracePeriodSeconds: Int): Boolean {
-        if (gracePeriodSeconds <= 0) {
-            val lastUnlocked = unlockedApps[packageName] ?: return false
-            val now = System.currentTimeMillis()
-            return (now - lastUnlocked) < 1_000L
-        }
-
         val lastUnlocked = unlockedApps[packageName] ?: return false
         val now = System.currentTimeMillis()
+
+        // When user selects "None (Every time)", keep the app unlocked for 30 seconds
+        // while active so that internal activity/window changes do not constantly re-trigger the lock.
+        val effectiveGracePeriod = if (gracePeriodSeconds <= 0) 30 else gracePeriodSeconds
+
         val elapsedSeconds = (now - lastUnlocked) / 1000L
-        val isUnlocked = elapsedSeconds < gracePeriodSeconds
+        val isUnlocked = elapsedSeconds < effectiveGracePeriod
 
         if (!isUnlocked) {
             unlockedApps.remove(packageName)
@@ -116,8 +115,8 @@ object LockManager {
         unlockedApps[packageName] = System.currentTimeMillis()
         failedAttemptsMap.remove(packageName)
         lockoutCooldownMap.remove(packageName)
-        currentlyVerifyingPackage = null
-        verifyingTimestamp = 0L
+        // Keep currentlyVerifying set with fresh timestamp for cooldown window
+        verifyingTimestamp = System.currentTimeMillis()
         updateFlow()
     }
 

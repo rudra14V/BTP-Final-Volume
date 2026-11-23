@@ -4,9 +4,6 @@ import android.accessibilityservice.AccessibilityService
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
-import android.app.usage.UsageEvents
-import android.app.usage.UsageStatsManager
-import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
@@ -23,8 +20,6 @@ import com.example.btp.ui.lock.VoiceLockActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 class AppLockAccessibilityService : AccessibilityService() {
@@ -67,13 +62,13 @@ class AppLockAccessibilityService : AccessibilityService() {
                 Log.d(TAG, "Sync settings: gracePeriod=${settings.gracePeriodSeconds}")
             }
         }
-
-        // Secondary 300ms Foreground Polling Loop to ensure 100% reliable locking
-        startForegroundMonitoringLoop()
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+
+        // Only intercept window state changes (app/activity launches)
+        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
 
         val pkgName = event.packageName?.toString() ?: return
         if (pkgName.isBlank()) return
@@ -81,8 +76,12 @@ class AppLockAccessibilityService : AccessibilityService() {
         checkAndLockPackage(pkgName)
     }
 
+    override fun onInterrupt() {
+        Log.w(TAG, "AppLockAccessibilityService interrupted")
+    }
+
     private fun checkAndLockPackage(pkgName: String) {
-        // Skip BTP app itself
+        // Skip BTP app itself and VoiceLockActivity
         if (pkgName == packageName) return
 
         // Skip launcher / home app
@@ -92,7 +91,7 @@ class AppLockAccessibilityService : AccessibilityService() {
             return
         }
 
-        // Fast 0ms synchronous check using LockManager in-memory / SharedPreferences set
+        // Fast check using LockManager in-memory / SharedPreferences set
         if (!LockManager.isProtected(applicationContext, pkgName)) {
             return
         }
@@ -128,35 +127,6 @@ class AppLockAccessibilityService : AccessibilityService() {
         }
     }
 
-    private fun startForegroundMonitoringLoop() {
-        serviceScope.launch(Dispatchers.IO) {
-            val usageStatsManager = getSystemService(USAGE_STATS_SERVICE) as? UsageStatsManager
-            while (isActive) {
-                delay(300)
-                try {
-                    val endTime = System.currentTimeMillis()
-                    val startTime = endTime - 1000
-                    val usageEvents = usageStatsManager?.queryEvents(startTime, endTime)
-                    val event = UsageEvents.Event()
-                    var topPackage: String? = null
-
-                    while (usageEvents != null && usageEvents.hasNextEvent()) {
-                        usageEvents.getNextEvent(event)
-                        if (event.eventType == UsageEvents.Event.ACTIVITY_RESUMED ||
-                            event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                            topPackage = event.packageName
-                        }
-                    }
-
-                    if (topPackage != null && topPackage.isNotBlank()) {
-                        checkAndLockPackage(topPackage)
-                    }
-                } catch (_: Exception) {
-                }
-            }
-        }
-    }
-
     private fun startServiceInForeground() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -189,21 +159,20 @@ class AppLockAccessibilityService : AccessibilityService() {
 
             startForeground(NOTIFICATION_ID, notification)
         } catch (e: Exception) {
-            Log.w(TAG, "Foreground notification failed", e)
+            Log.e(TAG, "Failed to start foreground notification", e)
         }
-    }
-
-    override fun onInterrupt() {
-        Log.w(TAG, "AppLockAccessibilityService interrupted")
     }
 
     private fun resolveDefaultHomePackage() {
         try {
-            val intent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
+            val intent = Intent(Intent.ACTION_MAIN).apply {
+                addCategory(Intent.CATEGORY_HOME)
+            }
             val resolveInfo = packageManager.resolveActivity(intent, PackageManager.MATCH_DEFAULT_ONLY)
             defaultHomePackage = resolveInfo?.activityInfo?.packageName
-        } catch (_: Exception) {
-            defaultHomePackage = null
+            Log.d(TAG, "Resolved default launcher: $defaultHomePackage")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to resolve default home package", e)
         }
     }
 }

@@ -68,6 +68,7 @@ import androidx.core.graphics.drawable.toBitmap
 import com.example.btp.data.LockManager
 import com.example.btp.ui.components.VoiceWaveformVisualizer
 import com.example.btp.ui.theme.BTPTheme
+import kotlinx.coroutines.delay
 import kotlin.math.roundToInt
 
 class VoiceLockActivity : ComponentActivity() {
@@ -100,7 +101,9 @@ class VoiceLockActivity : ComponentActivity() {
 
                 LaunchedEffect(state.isUnlocked) {
                     if (state.isUnlocked) {
-                        finish()
+                        // Briefly pause so user sees the green success checkmark, then dismiss and open target app
+                        delay(600)
+                        openTargetAppAndFinish(state.packageName)
                     }
                 }
 
@@ -142,6 +145,19 @@ class VoiceLockActivity : ComponentActivity() {
     override fun onDestroy() {
         super.onDestroy()
         LockManager.setCurrentlyVerifying(null)
+    }
+
+    private fun openTargetAppAndFinish(pkgName: String) {
+        if (pkgName.isNotBlank()) {
+            try {
+                val launchIntent = packageManager.getLaunchIntentForPackage(pkgName)
+                if (launchIntent != null) {
+                    launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
+                    startActivity(launchIntent)
+                }
+            } catch (_: Exception) {}
+        }
+        finish()
     }
 
     private fun goToHomeScreen() {
@@ -208,191 +224,224 @@ fun VoiceLockScreen(
 
                 Spacer(modifier = Modifier.height(14.dp))
 
+                // App Name
                 Text(
-                    text = state.appName.ifBlank { "Protected App" },
+                    text = state.appName.ifBlank { "Protected Application" },
                     style = MaterialTheme.typography.headlineMedium,
                     fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.onBackground
+                    color = MaterialTheme.colorScheme.onBackground,
+                    textAlign = TextAlign.Center
                 )
+
+                Spacer(modifier = Modifier.height(4.dp))
 
                 Text(
                     text = "Speak Passphrase: \"My voice is my password\"",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
                 )
 
-                Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(28.dp))
 
-                // Waveform Visualizer
-                VoiceWaveformVisualizer(
-                    isRecording = state.isRecording,
-                    amplitude = state.amplitude,
-                    activeColor = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(90.dp)
-                )
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // Prominent Score & Verification Result Card
-                if (state.similarityScore != null || state.errorMessage != null || state.isUnlocked) {
-                    val isSuccess = state.isUnlocked
-                    Card(
-                        colors = CardDefaults.cardColors(
-                            containerColor = if (isSuccess) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.errorContainer
-                            }
-                        ),
-                        shape = RoundedCornerShape(20.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(16.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally
+                // Dynamic Status Visualizer / Result Card
+                when {
+                    state.isUnlocked -> {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.Center
+                            Column(
+                                modifier = Modifier.padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Icon(
-                                    imageVector = if (isSuccess) Icons.Rounded.CheckCircle else Icons.Rounded.Cancel,
+                                    imageVector = Icons.Rounded.CheckCircle,
                                     contentDescription = null,
-                                    tint = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.size(28.dp)
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(48.dp)
                                 )
-                                Spacer(modifier = Modifier.width(10.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = if (isSuccess) "ACCESS GRANTED" else "ACCESS DENIED",
+                                    text = "Voice Verified! Opening app...",
                                     style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.ExtraBold,
-                                    color = if (isSuccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
-                            }
-
-                            if (state.similarityScore != null) {
-                                Spacer(modifier = Modifier.height(10.dp))
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-                                Spacer(modifier = Modifier.height(10.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceAround
-                                ) {
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(
-                                            text = "Voice Match Score",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            text = "%.2f (%d%%)".format(
-                                                state.similarityScore,
-                                                (state.similarityScore * 100).roundToInt()
-                                            ),
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = if (isSuccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
-                                        )
-                                    }
-
-                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                        Text(
-                                            text = "Required Threshold",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            fontWeight = FontWeight.SemiBold
-                                        )
-                                        Text(
-                                            text = "%.2f (%d%%)".format(
-                                                state.threshold,
-                                                (state.threshold * 100).roundToInt()
-                                            ),
-                                            style = MaterialTheme.typography.titleLarge,
-                                            fontWeight = FontWeight.ExtraBold,
-                                            fontFamily = FontFamily.Monospace,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                    }
+                                state.similarityScore?.let { score ->
+                                    Text(
+                                        text = "Similarity Match: %.1f%% (Required: %.1f%%)".format(
+                                            score * 100,
+                                            state.threshold * 100
+                                        ),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
                                 }
                             }
+                        }
+                    }
 
-                            if (state.errorMessage != null) {
-                                Spacer(modifier = Modifier.height(8.dp))
+                    state.isRecording -> {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(20.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Text(
+                                    text = "Listening... Speak passphrase now",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                VoiceWaveformVisualizer(
+                                    isRecording = true,
+                                    amplitude = state.amplitude,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(70.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    state.isProcessing -> {
+                        Card(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(20.dp),
+                            colors = CardDefaults.cardColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant
+                            )
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(24.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(44.dp),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.height(14.dp))
+                                Text(
+                                    text = "Extracting ECAPA-TDNN Embedding...",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
+
+                    state.errorMessage != null -> {
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Cancel,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(36.dp)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
                                 Text(
                                     text = state.errorMessage,
                                     style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
                                     color = MaterialTheme.colorScheme.onErrorContainer,
-                                    fontWeight = FontWeight.Bold,
                                     textAlign = TextAlign.Center
                                 )
                             }
                         }
                     }
-                } else {
-                    Text(
-                        text = if (state.cooldownRemainingSeconds > 0) {
-                            "Lockout active. Try again in ${state.cooldownRemainingSeconds}s"
-                        } else if (state.isRecording) {
-                            "Listening... Speak passphrase clearly"
-                        } else if (state.isProcessing) {
-                            "Extracting biometric voice signature..."
-                        } else {
-                            "Tap the button below and speak passphrase to unlock"
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+
+                    else -> {
+                        Text(
+                            text = "Tap the button below and speak passphrase to unlock",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                    }
                 }
             }
 
-            // Bottom Buttons
+            // Bottom Actions: Verify Button & Exit to Home
             Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
+                val isButtonDisabled = state.isRecording || state.isProcessing || state.isUnlocked || state.cooldownRemainingSeconds > 0
+
                 Button(
                     onClick = onStartVoiceVerification,
-                    enabled = !state.isRecording && !state.isProcessing && state.cooldownRemainingSeconds <= 0,
+                    enabled = !isButtonDisabled,
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(56.dp),
-                    shape = RoundedCornerShape(16.dp)
+                        .height(56.dp)
                 ) {
                     if (state.isProcessing) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(24.dp),
+                            modifier = Modifier.size(22.dp),
                             color = MaterialTheme.colorScheme.onPrimary,
                             strokeWidth = 2.dp
                         )
                     } else {
-                        Icon(imageVector = Icons.Rounded.Mic, contentDescription = null, modifier = Modifier.size(24.dp))
+                        Icon(
+                            imageVector = Icons.Rounded.Mic,
+                            contentDescription = null,
+                            modifier = Modifier.size(24.dp)
+                        )
                         Spacer(modifier = Modifier.width(10.dp))
                         Text(
-                            text = if (state.isRecording) "Recording Voice..." else "Tap to Speak & Unlock",
+                            text = when {
+                                state.cooldownRemainingSeconds > 0 -> "Cooldown Active (${state.cooldownRemainingSeconds}s)"
+                                state.isRecording -> "Recording..."
+                                else -> "Tap to Speak & Unlock"
+                            },
                             style = MaterialTheme.typography.titleMedium,
                             fontWeight = FontWeight.Bold
                         )
                     }
                 }
 
+                Spacer(modifier = Modifier.height(10.dp))
+
                 OutlinedButton(
                     onClick = onGoToHome,
+                    shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(50.dp),
-                    shape = RoundedCornerShape(16.dp)
+                        .height(50.dp)
                 ) {
-                    Icon(imageVector = Icons.Rounded.Home, contentDescription = null, modifier = Modifier.size(20.dp))
+                    Icon(
+                        imageVector = Icons.Rounded.Home,
+                        contentDescription = null,
+                        modifier = Modifier.size(20.dp)
+                    )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Exit to Home", style = MaterialTheme.typography.labelLarge)
+                    Text(
+                        text = "Exit to Home",
+                        style = MaterialTheme.typography.titleSmall
+                    )
                 }
             }
         }
@@ -405,41 +454,34 @@ fun LockAppIconImage(
     contentDescription: String,
     modifier: Modifier = Modifier
 ) {
-    val imageBitmap: ImageBitmap? = remember(drawable) {
-        if (drawable == null) null
-        else try {
-            drawable.toBitmap(width = 160, height = 160, config = Bitmap.Config.ARGB_8888).asImageBitmap()
-        } catch (_: Exception) {
-            null
-        }
-    }
-
-    Box(
-        modifier = modifier
-            .size(96.dp)
-            .clip(RoundedCornerShape(24.dp)),
-        contentAlignment = Alignment.Center
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        modifier = modifier.size(96.dp)
     ) {
-        if (imageBitmap != null) {
-            Image(
-                bitmap = imageBitmap,
-                contentDescription = contentDescription,
-                modifier = Modifier.fillMaxSize()
-            )
-        } else {
-            Surface(
-                modifier = Modifier.fillMaxSize(),
-                color = MaterialTheme.colorScheme.primaryContainer,
-                shape = RoundedCornerShape(24.dp)
-            ) {
-                Box(contentAlignment = Alignment.Center) {
-                    Icon(
-                        imageVector = Icons.Rounded.Android,
-                        contentDescription = contentDescription,
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        modifier = Modifier.size(56.dp)
-                    )
-                }
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.fillMaxSize()
+        ) {
+            val bitmap = remember(drawable) {
+                drawable?.toBitmap(width = 192, height = 192, config = Bitmap.Config.ARGB_8888)
+            }
+
+            if (bitmap != null) {
+                Image(
+                    bitmap = bitmap.asImageBitmap(),
+                    contentDescription = contentDescription,
+                    modifier = Modifier
+                        .size(64.dp)
+                        .clip(CircleShape)
+                )
+            } else {
+                Icon(
+                    imageVector = Icons.Rounded.Android,
+                    contentDescription = contentDescription,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(48.dp)
+                )
             }
         }
     }
